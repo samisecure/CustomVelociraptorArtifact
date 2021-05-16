@@ -1,0 +1,27 @@
+name: Custom.OSQuery.DetectCobaltStrikeDefaultPipeName
+description: |
+   Get memory dumps of all processes with a named pipe that spawn by cobaltStrike.
+parameters:
+   - name: NamedProcessRegex
+     default: '(?i)MSSE'
+   - name: NamedProcessRegex2
+     default: '(?i)server'
+   - name: OSQuery_query
+     default: "SELECT proc.parent AS process_parent, proc.path AS process_path, proc.pid AS process_id, proc.cwd AS process_directory, pipe.pid AS pipe_pid, pipe.name AS pipe_name FROM processes proc JOIN pipes pipe ON proc.pid=pipe.pid;"
+
+sources:
+  - precondition:
+      SELECT OS From info() where OS = 'windows'
+
+    query: |
+      LET matching_processes = SELECT * 
+      FROM Artifact.Windows.OSQuery.Generic(Query=OSQuery_query)
+      WHERE pipe_name =~ NamedProcessRegex And pipe_name =~ NamedProcessRegex2
+      GROUP BY process_id
+      
+      SELECT * FROM foreach(row=matching_processes,
+      query={
+          SELECT pipe_name, process_id, process_path, 
+                    upload(file=FullPath) AS MemDump
+          FROM proc_dump(pid=int(int=process_id))
+      })
